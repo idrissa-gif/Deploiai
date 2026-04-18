@@ -1,0 +1,383 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Deploia-Green — Energy-Aware Data Sampling for Industrial Time-Series ML</title>
+<meta name="description" content="Companion site for the ECML PKDD 2026 Industrial Track paper 'Green Training at Scale': detailed methodology, algorithms, and full benchmark results for GISTS and GRABS sampling." />
+<link rel="stylesheet" href="style.css" />
+<script src="https://cdn.plot.ly/plotly-2.35.2.min.js" charset="utf-8"></script>
+<script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css" />
+<script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"
+        onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}]});"></script>
+</head>
+<body>
+<header class="hero">
+  <div class="wrap">
+    <p class="eyebrow">ECML PKDD 2026 — Industrial Track · Companion site</p>
+    <h1>Green Training at Scale</h1>
+    <p class="subtitle">Data sampling strategies for energy-aware time-series learning in industry.
+       Detailed methodology and full experimental results supporting the 4-page paper.</p>
+    <p class="authors">Idrissa Dicko · Mohamed Ibn Khedher · Faïcel Chamroukhi · Louis Verny &nbsp;—&nbsp;
+       IRT SystemX &amp; TotalEnergies (IEN project)</p>
+    <nav class="toc">
+      <a href="#overview">Overview</a>
+      <a href="#problem">Problem</a>
+      <a href="#methods">Sampling strategies</a>
+      <a href="#setup">Experimental setup</a>
+      <a href="#results">Results</a>
+      <a href="#pareto">Pareto analysis</a>
+      <a href="#findings">Key findings</a>
+      <a href="#repro">Reproducibility</a>
+    </nav>
+  </div>
+</header>
+
+<main class="wrap">
+
+<section id="overview">
+  <h2>1 &nbsp; At a glance</h2>
+  <p>
+    We study <em>energy-aware data sampling</em> for training deep time-series
+    models in industrial environments.  Given a long operational series, we
+    ask: <strong>how much training data can we drop while preserving
+    predictive quality — and how much energy does that save?</strong>
+  </p>
+  <div class="cards">
+    <div class="card">
+      <div class="k">90%</div>
+      <div class="v">less training data at $\rho=0.10$ while keeping RMSE
+      within a marginal gap of the full-data baseline (GRABS).</div>
+    </div>
+    <div class="card">
+      <div class="k">~40×</div>
+      <div class="v">reduction in training energy between GRABS at
+      $\rho=0.10$ and GRABS at $\rho=0.50$, with only +1.9 RMSE points.</div>
+    </div>
+    <div class="card">
+      <div class="k">4 archs</div>
+      <div class="v">LSTM · TCN · Transformer · N-BEATS, each in small /
+      medium / large capacity variants — all trained under identical harness.</div>
+    </div>
+    <div class="card">
+      <div class="k">CodeCarbon</div>
+      <div class="v">RAPL (CPU) + NVML (GPU) + DRAM power polled at 1 Hz
+      over the training window only, isolated from I/O and preprocessing.</div>
+    </div>
+  </div>
+  <p class="note">
+    The results reported on the site use a large <em>public</em> industrial
+    sensor dataset with temporal characteristics comparable to TotalEnergies
+    operational data; the TotalEnergies data itself cannot be released publicly.
+  </p>
+</section>
+
+<section id="problem">
+  <h2>2 &nbsp; Problem statement</h2>
+  <p>
+    Let $\mathcal{D} = \{(x_t, y_t)\}_{t=1}^N$ be a time-series dataset and
+    $f_\theta$ a model family.  Given a sampling rate $\rho \in (0,1]$, select
+    a subset $\mathcal{S} \subseteq \mathcal{D}$ with
+    $|\mathcal{S}| = \lfloor \rho N \rfloor$ that jointly minimises
+  </p>
+  <p class="formula">
+    $$\min_{\mathcal{S}} \bigl[\;
+      \mathcal{L}(f_\theta ; \mathcal{D}_\mathrm{test}) \;,\;
+      E(\mathcal{S})
+    \;\bigr]$$
+  </p>
+  <p>
+    where $\mathcal{L}$ is a held-out predictive loss and $E(\mathcal{S})$
+    the total training energy (kWh).  Sampling overhead is included in
+    $E(\mathcal{S})$ so that strategies that reduce training time but incur
+    expensive pre-selection are <em>not</em> unfairly credited.  We report
+    the relative <strong>energy-efficiency ratio</strong>
+    $\eta = \Delta\mathrm{RMSE}_\mathrm{rel} / \Delta E_\mathrm{rel}$
+    against the full-data baseline $\rho = 1$.
+  </p>
+</section>
+
+<section id="methods">
+  <h2>3 &nbsp; Sampling strategies</h2>
+
+  <p>
+    All strategies operate on the raw series <em>before</em> windowing and
+    return <em>temporally-ordered</em> index sets so that downstream look-back
+    windows remain coherent.  Only the selection policy differs.
+  </p>
+
+  <h3 id="m-block">3.1 &nbsp; Block sampling</h3>
+  <p>
+    Partition the series into non-overlapping blocks of $B$ consecutive steps
+    ($B = 10$ in our experiments) and draw $\lceil \rho N / B \rceil$ blocks
+    uniformly at random.  Preserves local temporal continuity but ignores
+    informational content — at $\rho = 0.10$ a large fraction of the budget
+    is wasted on flat regions.
+  </p>
+  <pre class="algo">
+<strong>Algorithm 1 — BLOCK</strong>
+Input: series y of length N, rate ρ, block size B
+1  n_blocks ← ⌊N / B⌋
+2  n_keep   ← ⌈ρ · n_blocks⌉
+3  C ← UniformSample(n_keep blocks without replacement)
+4  return indices ⋃_{b ∈ C} [bB, (b+1)B)   (sorted)</pre>
+
+  <h3 id="m-mbb">3.2 &nbsp; Moving Block Bootstrap (MBB)</h3>
+  <p>
+    Overlapping blocks drawn <em>with</em> replacement to produce synthetic
+    replicates rather than reduce the dataset.  We include it as an
+    augmentation baseline at $\rho = 1$ for completeness; it does not compete
+    with reduction strategies.
+  </p>
+
+  <h3 id="m-gists">3.3 &nbsp; GISTS — Gradient-Informed Stratified Temporal Sampling</h3>
+  <p>
+    GISTS selects <em>individual</em> high-gradient indices under a
+    stratified temporal budget.  The temporal axis is split into
+    $K = \lfloor\sqrt{N}\rfloor$ equal-width strata; each index receives the
+    score $|\Delta y_t|$; strata with higher total gradient get more slots;
+    within each stratum we sample without replacement with probability
+    proportional to the score, then re-sort selected indices.
+  </p>
+  <pre class="algo">
+<strong>Algorithm 2 — GISTS</strong>
+Input: series y of length N, rate ρ, n_strata K (default ⌊√N⌋)
+1  n  ← ⌊ρ · N⌋;  boundaries ← linspace(0, N, K+1)
+2  for s = 1..K :
+3      G[s] ← Σ_{t ∈ stratum s} |Δy_t|
+4  a[s] ← ⌊n / K⌋;  distribute remainder to strata with top-G[s]
+5  for s = 1..K :
+6      p ← |Δy_t| / Σ|Δy_t| within stratum s
+7      pick a[s] indices without replacement ∝ p
+8  return selected indices sorted in temporal order</pre>
+  <p>
+    <strong>Why it can fail on sequence models:</strong> selecting individual
+    points shatters the local context that LSTMs and TCNs rely on.  A look-back
+    window of length $L$ that crosses gaps in the subsampled series is no
+    longer a contiguous slice of the original signal.
+  </p>
+
+  <h3 id="m-grabs">3.4 &nbsp; GRABS — Gradient-Ranked Adaptive Block Sampling</h3>
+  <p>
+    GRABS is our main contribution.  It <em>combines block continuity with
+    gradient-informed importance</em>: each block is scored by internal
+    variability + boundary transition, and blocks are selected by a
+    dual-budget mechanism that spends a fraction $\alpha$ of the budget on
+    uniform coverage (so calm regions are not ignored) and the remainder
+    $1-\alpha$ on score-weighted sampling without replacement.  All points
+    inside a selected block are kept intact.
+  </p>
+  <p class="formula">
+    $$s_b \;=\; \underbrace{\sum_{t\in b} |\Delta y_t|}_{\text{internal variability}}
+              \;+\;
+              \underbrace{\bigl|\,y_{\text{first}(b)} - y_{\text{last}(b-1)}\,\bigr|}_{\text{boundary transition}}$$
+  </p>
+  <pre class="algo">
+<strong>Algorithm 3 — GRABS</strong>
+Input: series y of length N, rate ρ, block size B, base fraction α
+1  n_blocks ← ⌊N/B⌋;   n_keep ← ⌈ρ · n_blocks⌉
+2  for each block b :
+3      internal ← Σ_{t∈b} |Δy_t|
+4      boundary ← |y_first(b) − y_last(b−1)|   (0 for b=1)
+5      s[b] ← internal + boundary
+6  n_base  ← ⌈α · n_keep⌉;     n_bonus ← n_keep − n_base
+7  C ← UniformSample(n_base blocks without replacement)       # coverage
+8  remaining ← {1..n_blocks} \ C
+9  p ← (s[remaining] + ε) / Σ(s[remaining] + ε)
+10 C ← C ∪ WeightedSample(remaining, n_bonus, p, no-replace)  # importance
+11 return indices ⋃_{b∈C} [bB, (b+1)B)   (sorted)
+Default: B = 10, α = 0.3.</pre>
+
+  <p>
+    <strong>Why GRABS works at low $\rho$:</strong> the gradient score locates
+    regime changes and transitions; the coverage budget $\alpha$ prevents
+    collapse onto a small number of high-energy regions; blocks preserve the
+    smooth local context sequence models need.  The dual-budget scheme is
+    conceptually close to $\varepsilon$-greedy exploration in reinforcement
+    learning, adapted to data selection.
+  </p>
+
+  <h3 id="m-compare">3.5 &nbsp; At-a-glance comparison</h3>
+  <table class="cmp">
+    <thead><tr>
+      <th>Property</th><th>Block</th><th>GISTS</th><th>GRABS</th>
+    </tr></thead>
+    <tbody>
+      <tr><td>Preserves contiguous local context</td><td>✓</td><td>✗</td><td>✓</td></tr>
+      <tr><td>Gradient-informed selection</td><td>✗</td><td>✓ (points)</td><td>✓ (blocks)</td></tr>
+      <tr><td>Guarantees temporal coverage</td><td>✓ (via uniformity)</td><td>✓ (strata)</td><td>✓ (α budget)</td></tr>
+      <tr><td>Pre-selection cost (one-time)</td><td>O(n_blocks)</td><td>O(N + K log K)</td><td>O(n_blocks)</td></tr>
+      <tr><td>Key hyperparameters</td><td>$B$</td><td>$K$</td><td>$B$, $\alpha$</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section id="setup">
+  <h2>4 &nbsp; Experimental setup</h2>
+  <h3>4.1 &nbsp; Models and training harness</h3>
+  <p>
+    We evaluate four representative architectures for industrial forecasting:
+    LSTM, Temporal Convolutional Network (TCN), Transformer, and N-BEATS, each
+    in <em>small</em>, <em>medium</em> and <em>large</em> capacity variants
+    (12 configurations in total).  All share an identical harness — Adam,
+    MinMax-scaled inputs, early stopping on validation loss, grid over
+    look-back horizons $\{5, 10, 20\}$ and batch sizes $\{32, 64\}$.  Each
+    configuration is repeated $n_\text{runs}=3$ times with independent seeds.
+  </p>
+
+  <h3>4.2 &nbsp; Energy measurement</h3>
+  <p>
+    Energy and CO₂-equivalent emissions are recorded with CodeCarbon's
+    <code>EmissionsTracker</code>, which polls RAPL (CPU), NVML (GPU), and
+    estimated DRAM power at 1 Hz and integrates over the training window.  The
+    tracker starts immediately before <code>model.fit</code> and stops at
+    convergence, isolating the training phase from dataset I/O and
+    preprocessing.  Sampling overhead is measured separately and added to the
+    energy budget.
+  </p>
+
+  <h3>4.3 &nbsp; Indicators</h3>
+  <ul>
+    <li><strong>Predictive:</strong> test RMSE and MAE on a held-out split.</li>
+    <li><strong>Computational:</strong> wall-clock training time (s),
+        energy-per-sample (kWh).</li>
+    <li><strong>Environmental:</strong> total training energy (kWh),
+        CO₂-equivalent (g) via grid-intensity factor (default 475 g/kWh).</li>
+    <li><strong>Trade-off:</strong>
+        $\eta = \Delta\mathrm{RMSE}_\mathrm{rel} / \Delta E_\mathrm{rel}$,
+        Pareto dominance on $(\mathrm{RMSE}, E)$.</li>
+  </ul>
+</section>
+
+<section id="results">
+  <h2>5 &nbsp; Full benchmark results</h2>
+
+  <p>
+    All figures below are generated in-browser from the raw
+    <a href="data.json"><code>data.json</code></a> aggregated over
+    3 seeds × 12 configurations (4 architectures × 3 capacities) per
+    (strategy, $\rho$) cell.
+  </p>
+
+  <h3 id="r-rmse">5.1 &nbsp; RMSE vs sampling rate</h3>
+  <p>Mean test RMSE across all architectures and capacities.
+     Error bars show population standard deviation across the 12 configurations.</p>
+  <div id="fig-rmse-vs-rho" class="plot"></div>
+
+  <h3 id="r-energy">5.2 &nbsp; Training energy vs sampling rate</h3>
+  <div id="fig-energy-vs-rho" class="plot"></div>
+
+  <h3 id="r-time">5.3 &nbsp; Wall-clock training time vs sampling rate</h3>
+  <div id="fig-time-vs-rho" class="plot"></div>
+
+  <h3 id="r-per-arch">5.4 &nbsp; Per-architecture breakdown</h3>
+  <p>Switch the architecture to inspect how each model responds to each strategy.</p>
+  <div class="controls">
+    <label>Architecture:
+      <select id="arch-select"></select>
+    </label>
+    <label>Metric:
+      <select id="arch-metric">
+        <option value="rmse">Test RMSE</option>
+        <option value="energy_kwh">Training energy (kWh)</option>
+        <option value="time_s">Training time (s)</option>
+      </select>
+    </label>
+  </div>
+  <div id="fig-per-arch" class="plot"></div>
+
+  <h3 id="r-eps">5.5 &nbsp; Energy per training sample</h3>
+  <p>
+    Lower is better — isolates the per-sample cost from total volume so that
+    strategies with different subset sizes can be compared on efficiency.
+  </p>
+  <div id="fig-eps" class="plot"></div>
+</section>
+
+<section id="pareto">
+  <h2>6 &nbsp; Performance–energy Pareto</h2>
+  <p>
+    Each marker is one (strategy, $\rho$) point — lower-left is better.
+    A strategy is <em>Pareto-dominated</em> if another point is better on
+    both axes simultaneously.  GRABS at $\rho = 0.10$ dominates every other
+    configuration tested except the very cheapest point (block at $\rho=0.10$),
+    which costs an 8-point RMSE penalty.
+  </p>
+  <div id="fig-pareto" class="plot"></div>
+
+  <h3 id="p-eta">6.1 &nbsp; Energy-efficiency ratio $\eta$</h3>
+  <p>
+    Relative RMSE degradation per unit of relative energy saving, w.r.t. the
+    most expensive baseline.  A value below 1 means we save more energy than
+    we lose in accuracy.  See <a href="#setup">Section 4.3</a>.
+  </p>
+  <div id="fig-eta" class="plot"></div>
+</section>
+
+<section id="findings">
+  <h2>7 &nbsp; Key findings</h2>
+  <ol>
+    <li><strong>Preserving temporal continuity is necessary but not sufficient.</strong>
+        Block already preserves continuity and is still outperformed by GRABS by
+        more than eight RMSE points at nearly identical energy cost —
+        informational content must <em>also</em> drive selection.</li>
+    <li><strong>Gradient information alone is not sufficient either.</strong>
+        GISTS selects high-gradient indices without block structure, collapsing
+        sequence-model context; it is dominated on both axes in our setting.</li>
+    <li><strong>The marginal return of additional data is small once informative
+        regions are covered.</strong>  GRABS at $\rho=0.10$ is within 1.9 RMSE
+        points of GRABS at $\rho=0.50$ while consuming $40\times$ less energy —
+        for this class of industrial sensor signals, a $90\%$ reduction in
+        training data and a commensurate reduction in training energy is
+        achievable with negligible loss in predictive quality.</li>
+    <li><strong>Operational recommendation.</strong>
+        GRABS at $\rho=0.10$ is the default; block at $\rho=0.10$ is the
+        fallback when the $\sim 27\%$ energy overhead of the gradient scan is
+        unaffordable and an 8-point RMSE cost is acceptable.</li>
+  </ol>
+</section>
+
+<section id="repro">
+  <h2>8 &nbsp; Reproducibility</h2>
+  <p>
+    All code, configuration, and raw benchmark CSVs are released in the
+    companion repository.  The data-file backing every plot on this page is
+    <a href="data.json"><code>data.json</code></a>; re-generate it with
+    <code>python docs/site/build_data.py</code>.
+  </p>
+  <ul>
+    <li><strong>Repository:</strong>
+        <a href="https://github.com/IRT-SystemX/deploai">IRT-SystemX/deploai</a>
+        (Deploia-Green benchmark)</li>
+    <li><strong>Mirror for this site:</strong>
+        <a href="https://github.com/idrissa-gif/Deploiai">idrissa-gif/Deploiai</a></li>
+    <li><strong>Sampling implementations:</strong>
+        <code>dataset/Times_Series/sampling/{block,gists,grabs,mbb}_sampling.py</code></li>
+    <li><strong>Benchmark runner:</strong> <code>benchmark/benchmark.py</code></li>
+    <li><strong>Energy tracker:</strong>
+        <a href="https://codecarbon.io">CodeCarbon</a> 2.x, 1 Hz polling.</li>
+  </ul>
+  <details>
+    <summary>Citation</summary>
+<pre>@inproceedings{dicko2026green,
+  title     = {Green Training at Scale: Data Sampling Strategies for
+               Energy-Aware Learning in Industry},
+  author    = {Dicko, Idrissa and Ibn Khedher, Mohamed and Chamroukhi,
+               Fa\"icel and Verny, Louis},
+  booktitle = {ECML PKDD 2026, Industrial Track},
+  year      = {2026}
+}</pre>
+  </details>
+</section>
+
+<footer>
+  <p>IRT SystemX &amp; TotalEnergies — IEN project (France 2030).
+     Built with HTML, CSS and Plotly.js. No tracking, no cookies.</p>
+</footer>
+
+</main>
+
+<script src="app.js"></script>
+</body>
+</html>
