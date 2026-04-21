@@ -4,7 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
 <title>Deploia-Green — Energy-Aware Data Sampling for Industrial Time-Series ML</title>
-<meta name="description" content="Companion site for the ECML PKDD 2026 Industrial Track paper 'Green Training at Scale': detailed methodology, algorithms, and full benchmark results for GISTS and GRABS sampling." />
+<meta name="description" content="Companion site" />
 <link rel="stylesheet" href="style.css" />
 <script src="https://cdn.plot.ly/plotly-2.35.2.min.js" charset="utf-8"></script>
 <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
@@ -15,12 +15,10 @@
 <body>
 <header class="hero">
   <div class="wrap">
-    <p class="eyebrow">ECML PKDD 2026 — Industrial Track · Companion site</p>
+    <p class="eyebrow">Companion site</p>
     <h1>Green Training at Scale</h1>
     <p class="subtitle">Data sampling strategies for energy-aware time-series learning in industry.
        Detailed methodology and full experimental results supporting the 4-page paper.</p>
-    <p class="authors">Idrissa Dicko · Mohamed Ibn Khedher · Faïcel Chamroukhi · Louis Verny &nbsp;—&nbsp;
-       IRT SystemX &amp; TotalEnergies (IEN project)</p>
     <nav class="toc">
       <a href="#overview">Overview</a>
       <a href="#problem">Problem</a>
@@ -346,36 +344,7 @@ Default: B = 10, α = 0.3.</pre>
     <a href="data.json"><code>data.json</code></a>; re-generate it with
     <code>python docs/site/build_data.py</code>.
   </p>
-  <ul>
-    <li><strong>Repository:</strong>
-        <a href="https://github.com/IRT-SystemX/deploai">IRT-SystemX/deploai</a>
-        (Deploia-Green benchmark)</li>
-    <li><strong>Mirror for this site:</strong>
-        <a href="https://github.com/idrissa-gif/Deploiai">idrissa-gif/Deploiai</a></li>
-    <li><strong>Sampling implementations:</strong>
-        <code>dataset/Times_Series/sampling/{block,gists,grabs,mbb}_sampling.py</code></li>
-    <li><strong>Benchmark runner:</strong> <code>benchmark/benchmark.py</code></li>
-    <li><strong>Energy tracker:</strong>
-        <a href="https://codecarbon.io">CodeCarbon</a> 2.x, 1 Hz polling.</li>
-  </ul>
-  <details>
-    <summary>Citation</summary>
-<pre>@inproceedings{dicko2026green,
-  title     = {Green Training at Scale: Data Sampling Strategies for
-               Energy-Aware Learning in Industry},
-  author    = {Dicko, Idrissa and Ibn Khedher, Mohamed and Chamroukhi,
-               Fa\"icel and Verny, Louis},
-  booktitle = {ECML PKDD 2026, Industrial Track},
-  year      = {2026}
-}</pre>
-  </details>
 </section>
-
-<footer>
-  <p>IRT SystemX &amp; TotalEnergies — IEN project (France 2030).
-     Built with HTML, CSS and Plotly.js. No tracking, no cookies.</p>
-</footer>
-
 </main>
 
 <script src="app.js"></script>
