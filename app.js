@@ -81,7 +81,7 @@ async function main() {
 
   setupPerArchChart(data);
   drawPareto(data);
-  drawEta(byStrategy);
+  setupWeightedScore(byStrategy);
 }
 
 function drawLinePlot(divId, byStrategy, pick, xlab, ylab, title, opts = {}) {
@@ -188,22 +188,38 @@ function drawPareto(data) {
   Plotly.newPlot("fig-pareto", traces, layout, { responsive: true, displaylogo: false });
 }
 
-function drawEta(byStrategy) {
-  // Normalize against the most expensive observed point (baseline).
+function setupWeightedScore(byStrategy) {
+  // Min-max normalise RMSE and energy across all (strategy, ρ) points.
   const all = [];
   for (const s of Object.keys(byStrategy)) for (const r of byStrategy[s]) all.push(r);
-  const baseline = all.reduce((a, b) => (a.energy_kwh?.mean > b.energy_kwh?.mean ? a : b));
-  const E0 = baseline.energy_kwh.mean, R0 = baseline.rmse.mean;
+  const rmses = all.map((r) => r.rmse?.mean).filter((v) => v != null);
+  const energies = all.map((r) => r.energy_kwh?.mean).filter((v) => v != null);
+  const rMin = Math.min(...rmses), rMax = Math.max(...rmses);
+  const eMin = Math.min(...energies), eMax = Math.max(...energies);
+  const norm = (v, lo, hi) => (hi === lo ? 0 : (v - lo) / (hi - lo));
 
+  const slider = document.getElementById("score-alpha");
+  const valLabel = document.getElementById("score-alpha-val");
+
+  const redraw = () => {
+    const alpha = parseFloat(slider.value);
+    valLabel.textContent = alpha.toFixed(2);
+    drawWeightedScore(byStrategy, alpha, { rMin, rMax, eMin, eMax, norm });
+  };
+  slider.addEventListener("input", redraw);
+  redraw();
+}
+
+function drawWeightedScore(byStrategy, alpha, n) {
   const traces = [];
   for (const s of Object.keys(byStrategy)) {
     const rows = byStrategy[s];
     const x = rows.map((r) => r.rho_pct);
     const y = rows.map((r) => {
-      const dE = (E0 - r.energy_kwh.mean) / E0;      // fraction of energy saved
-      const dR = (r.rmse.mean - R0) / R0;            // fraction of RMSE lost
-      if (dE <= 0) return null;
-      return dR / dE;                                // lower is better; <1 means energy save > accuracy loss
+      if (r.rmse?.mean == null || r.energy_kwh?.mean == null) return null;
+      const rN = n.norm(r.rmse.mean, n.rMin, n.rMax);
+      const eN = n.norm(r.energy_kwh.mean, n.eMin, n.eMax);
+      return alpha * rN + (1 - alpha) * eN;
     });
     traces.push({
       x, y,
@@ -211,24 +227,21 @@ function drawEta(byStrategy) {
       name: STRAT_LABEL[s],
       line: { color: COLORS[s], width: 2.5 },
       marker: { size: 9, color: COLORS[s] },
-      hovertemplate: `<b>${STRAT_LABEL[s]}</b> · ρ=%{x}%<br>η = %{y:.3f}<extra></extra>`,
+      hovertemplate: `<b>${STRAT_LABEL[s]}</b> · ρ=%{x}%<br>score = %{y:.3f}<extra></extra>`,
     });
   }
-  // Add a reference line at η = 1 (break-even).
-  const xs = [...new Set(traces.flatMap((t) => t.x))].sort((a, b) => a - b);
-  traces.push({
-    x: xs, y: xs.map(() => 1),
-    mode: "lines", line: { color: "#98a3b3", width: 1, dash: "dash" },
-    name: "η = 1 (break-even)", hoverinfo: "skip",
-  });
+  const accPct = Math.round(alpha * 100);
+  const enPct = 100 - accPct;
   const layout = base({
-    title: { text: "η = ΔRMSE_rel / ΔE_rel — lower is better (bigger energy savings per RMSE point lost).",
-             font: { size: 12, color: "#98a3b3" } },
+    title: {
+      text: `score = α·RMSE_norm + (1-α)·Energy_norm — α=${alpha.toFixed(2)} (Accuracy ${accPct}% · Energy ${enPct}%). Lower is better.`,
+      font: { size: 12, color: "#98a3b3" },
+    },
     xaxis: { title: "Sampling rate ρ (%)", dtick: 10 },
-    yaxis: { title: "Energy-efficiency ratio η" },
+    yaxis: { title: "Weighted trade-off score", range: [0, 1] },
     hovermode: "x unified",
   });
-  Plotly.newPlot("fig-eta", traces, layout, { responsive: true, displaylogo: false });
+  Plotly.newPlot("fig-score", traces, layout, { responsive: true, displaylogo: false });
 }
 
 main().catch((err) => {

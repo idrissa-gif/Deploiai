@@ -303,13 +303,20 @@ Default: B = 10, α = 0.3.</pre>
   </p>
   <div id="fig-pareto" class="plot"></div>
 
-  <h3 id="p-eta">6.1 &nbsp; Energy-efficiency ratio $\eta$</h3>
+  <h3 id="p-score">6.1 &nbsp; Weighted trade-off score ($\alpha \cdot \mathrm{RMSE}_{\text{norm}} + (1-\alpha) \cdot \mathrm{Energy}_{\text{norm}}$)</h3>
   <p>
-    Relative RMSE degradation per unit of relative energy saving, w.r.t. the
-    most expensive baseline.  A value below 1 means we save more energy than
-    we lose in accuracy.  See <a href="#setup">Section 4.3</a>.
+    Min-max normalise RMSE and energy across all (strategy, $\rho$) points,
+    then combine with weight $\alpha \in [0,1]$.  $\alpha = 1$ ranks by
+    accuracy only, $\alpha = 0$ by energy only, $\alpha = 0.5$ balances both.
+    Lower score is better.
   </p>
-  <div id="fig-eta" class="plot"></div>
+  <div class="controls">
+    <label>α (weight on accuracy):
+      <input id="score-alpha" type="range" min="0" max="1" step="0.05" value="0.5" />
+      <span id="score-alpha-val">0.50</span>
+    </label>
+  </div>
+  <div id="fig-score" class="plot"></div>
 </section>
 
 <section id="findings">
